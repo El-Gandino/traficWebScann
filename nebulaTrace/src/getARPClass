@@ -1,0 +1,39 @@
+import os
+import subprocess
+class ARPTable:
+    def __init__(self):
+        self.arp_table = []
+
+        
+    def fetch_arp_table(self):
+        try:
+            # Run the arp command to fetch the ARP table
+            result = subprocess.check_output("arp -a", shell=True, text=True)
+            self.parse_arp_table(result)
+        except Exception as e:
+            print(f"Error fetching ARP table: {e}")
+
+    def parse_arp_table(self, arp_output):
+        self.arp_table = []
+        lines = arp_output.splitlines()
+        for line in lines[1:]:  # Skip the header line
+            parts = line.split()
+            if len(parts) >= 3:
+                ip_address = parts[0]
+                mac_address = parts[1]
+                interface = parts[2]
+                self.arp_table.append({
+                    "IP Address": ip_address,
+                    "MAC Address": mac_address,
+                    "Interface": interface
+                })
+
+    def get_arp_table(self):
+        return self.arp_table
+
+# Example usage
+if __name__ == "__main__":
+    arp = ARPTable()
+    arp.fetch_arp_table()
+    for entry in arp.get_arp_table():
+        print(entry)
