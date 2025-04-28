@@ -9,13 +9,35 @@
 */
 #include <iostream>
 #include <csignal>
-#include "lanScanner.cpp" // Include the header file for ARPTable and ARPEntry classes
+#include <atomic>
+#include <thread>
+#include "lanScanner.cpp"
+#include "../include/logs.h"
+#include "../include/stream.h"
+
+// Declare static/global variables
+std::atomic<bool> running(true); // To control the threads
+std::thread arpBroadcastThread;
+std::thread silentIPScanThread;
+Logs* logger = nullptr; // Global pointer to the logger
+
+// Signal handler function
+void signalHandler(int signal) {
+    if (signal == SIGINT) {
+        if (logger) {
+            logger->writeLog("NebulaTrace Application Ended");
+        }
+        running = false; // Signal the threads to stop
+    }
+}
+
 class Main {
 public:
     // Constructor
     Main() {
         std::cout << "NebulaTrace Application Initialized." << std::endl;
     }
+
     struct deviceInfo {
         std::string macAddress;
         std::string ipv4;
@@ -24,46 +46,75 @@ public:
         std::string dhcpStartDate;
         std::string dhcpEndDate;
     };
+
     // Method to start the application
     void start() {
         std::cout << "Starting NebulaTrace Application..." << std::endl;
+
+        // Configure the signal handler
+        std::signal(SIGINT, signalHandler);
+
         try {
+            Stream* stream = Stream::getInstance(); // Get the singleton instance of Stream
             LanScanner lanScanner; // Create an instance of LanScanner
             deviceInfo serverDeviceInfo; // Create an instance of serverDeviceInfo
+
             serverDeviceInfo.ipv4 = lanScanner.getPersonnalIPAddress("eth0"); // Get device info for eth0
-            
+
+            // Initialize the logger
+            logger = Logs::getInstance(Stream::getInstance()->logFilePath);
+            logger->writeLog("NebulaTrace Application Started");
+
             std::cout << "Server IP Address: " << serverDeviceInfo.ipv4 << std::endl;
 
-            std::thread arpBroadcastThread([&lanScanner]() {
-                while (true) {
-                    lanScanner.sendArpBroadcast("eth0"); // Call sendArpBroadcast every 30 seconds
-                    std::this_thread::sleep_for(std::chrono::seconds(30)); // Wait for 30 seconds
+            // Start the ARP broadcast thread
+            arpBroadcastThread = std::thread([&lanScanner]() {
+                while (running) {
+                    lanScanner.sendArpBroadcast("eth0"); // Call sendArpBroadcast
+                    //for (int i = 0; i < 30 && running; ++i) {
+                        for (int i = 0; i < 30 && running; ++i) {
+                            std::this_thread::sleep_for(std::chrono::seconds(1));
+                        }
+                    //}
+                }
+            });
+            // Start the silent IP scan thread
+            silentIPScanThread = std::thread([&lanScanner]() {
+                while (running) {
+                    lanScanner.scanSilentIPs("eth0"); // Call scanSilentIPs
+                    for (int i = 0; i < 600 && running; ++i) {
+                        std::this_thread::sleep_for(std::chrono::seconds(1)); // Check every second
+                    }
                 }
             });
 
-            std::thread silentIPScanThread([&lanScanner]() {
-                while (true) {
-                    lanScanner.scanSilentIPs("eth0"); // Call scanSilentIPs every 10 minutes
-                    std::this_thread::sleep_for(std::chrono::minutes(10)); // Wait for 10 minutes
-                }
-            });
-            std::signal(SIGINT, [](int signal) {
-                std::cout << "\nInterrupt signal (" << signal << ") received. Stopping Silent IP Scan..." << std::endl;
-                std::exit(0); // Exit the program gracefully
-            });
-            while (true) {}
-            arpBroadcastThread.detach(); // Detach the ARP broadcast thread
-            silentIPScanThread.detach(); // Detach the silent IP scan thread
+            // Keep the main thread running
+            while (running) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+
+            // Wait for threads to finish
+            if (arpBroadcastThread.joinable()) {
+                arpBroadcastThread.join();
+            }
+            if (silentIPScanThread.joinable()) {
+                silentIPScanThread.join();
+            }
+
         } catch (const std::exception& ex) {
+            if (logger) {
+                logger->writeError("Exception: " + std::string(ex.what()));
+            }
             std::cerr << "Error: " << ex.what() << std::endl;
-            return;
         }
     }
+
     // Destructor
     ~Main() {
         std::cout << "NebulaTrace Application Terminated." << std::endl;
     }
 };
+
 int main() {
     Main app; // Create an instance of the Main class
     app.start(); // Start the application

@@ -19,6 +19,8 @@
 #include <linux/if_packet.h> // For sockaddr_ll
 #include <mutex>
 
+#include "../include/logs.h" // Include the header file for Logs class
+#include "../include/stream.h" 
 class LanScanner {
 public:
     struct DeviceInfo {
@@ -34,6 +36,7 @@ public:
         struct ifreq ifr;
         fd = socket(AF_INET, SOCK_DGRAM, 0);
         if (fd == -1) {
+            Logs::getInstance( Stream::getInstance()->logFilePath)->writeError("Failed to create socket for IP address retrieval.");
             perror("socket");
             return "";
         }
@@ -46,11 +49,13 @@ public:
         }
         close(fd);
         struct sockaddr_in* ipaddr = reinterpret_cast<struct sockaddr_in*>(&ifr.ifr_addr);
+        Logs::getInstance( Stream::getInstance()->logFilePath)->writeInfo("Server IP Address: " + std::string(inet_ntoa(ipaddr->sin_addr)));
         return inet_ntoa(ipaddr->sin_addr);
     }
     std::string getBroadcastAddress(const std::string& interface) {
         int fd = socket(AF_INET, SOCK_DGRAM, 0);
         if (fd == -1) {
+            Logs::getInstance( Stream::getInstance()->logFilePath)->writeError("Failed to create socket for broadcast address retrieval.");
             perror("socket");
             return "";
         }
@@ -60,6 +65,7 @@ public:
     
         // Get the IP address
         if (ioctl(fd, SIOCGIFADDR, &ifr) == -1) {
+            Logs::getInstance( Stream::getInstance()->logFilePath)->writeError("Failed to get IP address.");
             perror("ioctl SIOCGIFADDR");
             close(fd);
             return "";
@@ -69,6 +75,7 @@ public:
     
         // Get the subnet mask
         if (ioctl(fd, SIOCGIFNETMASK, &ifr) == -1) {
+            Logs::getInstance( Stream::getInstance()->logFilePath)->writeError("Failed to get subnet mask.");
             perror("ioctl SIOCGIFNETMASK");
             close(fd);
             return "";
@@ -89,6 +96,7 @@ public:
     void sendArpBroadcast(const std::string& interface) {
         int sock = socket(AF_PACKET, SOCK_RAW, htons(ETH_P_ARP));
         if (sock < 0) {
+            Logs::getInstance( Stream::getInstance()->logFilePath)->writeError("Failed to create socket for ARP broadcast.");
             perror("Socket creation failed");
             return;
         }
@@ -119,9 +127,11 @@ public:
         inet_pton(AF_INET, "192.168.1.13", arpHeader->arp_spa); // Source IP: Your IP
         // Send ARP packet
         if (sendto(sock, buffer, sizeof(buffer), 0, (struct sockaddr*)&broadcastAddr, sizeof(broadcastAddr)) < 0) {
+            Logs::getInstance( Stream::getInstance()->logFilePath)->writeError("Failed to send ARP broadcast.");
             perror("Failed to send ARP broadcast");
         } else {
-            std::cout << "ARP broadcast sent successfully." << std::endl;
+            Logs::getInstance( Stream::getInstance()->logFilePath)->writeInfo("ARP broadcast sent successfully.");
+            std::cout << "ARP broadcast sent successfully." << std::endl;// A comm en production
         }
         close(sock);
     }
@@ -129,12 +139,14 @@ public:
     void scanSilentIPs(const std::string& interface) {
         std::string broadcastIP = getBroadcastAddress(interface);
         if (broadcastIP.empty()) {
+            Logs::getInstance( Stream::getInstance()->logFilePath)->writeError("Failed to get broadcast address.");
             std::cerr << "Failed to get broadcast address." << std::endl;
             return;
         }
         // Extract the subnet from the broadcast address
         size_t lastDot = broadcastIP.find_last_of('.');
         if (lastDot == std::string::npos) {
+            Logs::getInstance( Stream::getInstance()->logFilePath)->writeError("Invalid broadcast address format.");
             std::cerr << "Invalid broadcast address format." << std::endl;
             return;
         }
@@ -161,15 +173,46 @@ public:
         for (auto& thread : threads) {
             thread.join();
         }
-        std::cout << "Scan complete." << std::endl;
-        std::cout << "Active IPs found: " << std::endl;
-        for (const auto& ip : activeIPs) {
-            std::cout << ip << std::endl;
-        }
-        std::cout << "Number of silent IPs: " << silentCount << std::endl;
+        
+        Logs::getInstance( Stream::getInstance()->logFilePath)->writeInfo("Scan complete. Active IPs found: " + std::to_string(activeIPs.size()) + ", Silent IPs: " + std::to_string(silentCount));
+       
     }
     /*[faire tableaa MAC IPv4 IPv6 STARTTIME ENDTIME]*/
+    std::vector<DeviceInfo> getDeviceInfoFromArpTable() {
+        std::vector<DeviceInfo> devices;
+        FILE* arpFile = fopen("/proc/net/arp", "r");
+        if (!arpFile) {
+            perror("Failed to open ARP table");
+            return devices;
+        }
 
+        char line[256];
+        fgets(line, sizeof(line), arpFile); // Skip the header line
 
+        while (fgets(line, sizeof(line), arpFile)) {
+            std::istringstream iss(line);
+            std::string ip, hwType, flags, mac, mask, device;
+            if (!(iss >> ip >> hwType >> flags >> mac >> mask >> device)) {
+                continue;
+            }
+
+            if (mac == "00:00:00:00:00:00") {
+                continue; // Skip incomplete entries
+            }
+
+            DeviceInfo deviceInfo;
+            deviceInfo.ipv4 = ip;
+            deviceInfo.macAddress = mac;
+            deviceInfo.hostName = ""; // Hostname resolution can be added if needed
+            deviceInfo.ipv6 = ""; // IPv6 not available in ARP table
+            deviceInfo.dhcpStartDate = ""; // DHCP info not available in ARP table
+            deviceInfo.dhcpEndDate = ""; // DHCP info not available in ARP table
+
+            devices.push_back(deviceInfo);
+        }
+
+        fclose(arpFile);
+        return devices;
+    }
 
 };
