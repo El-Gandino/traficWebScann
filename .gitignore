@@ -1,0 +1,52 @@
+# Compiled object files
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.a
+*.lib
+
+# Executable files
+*.exe
+*.out
+*.app
+
+# Debug files
+*.dSYM/
+*.stackdump
+ 
+# IDE specific files
+.vscode/
+*.code-workspace
+*.idea/
+*.suo
+*.user
+*.userosscache
+*.userprefs
+*.ncb
+*.opendb
+*.VC.db
+
+# Logs and databases
+*.log
+*.sql
+*.sqlite
+*.sh 
+# Other
+*.class
+*.pyc
+*.pyo
+*.swp
+*~
+.DS_Store
+Thumbs.db
+!nebulaTrace/

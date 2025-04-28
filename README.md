@@ -25,3 +25,8 @@ Avec ce tableau le choix ce porte entre Rust et C++
 Vu que l'objecti et de ce formé le cchois se porte sur **C++**.
 ### Liste des information a enregistrer 
 <!-- A mêtre sous forme de shéma (un jour) -->
+## installation
+### Instalation Mysql
+- script dans script/install_mysql.sh
+chmod +x **pathtoApp**/script/install_mysql.sh //le rend executable
+./scripts/install_mysql_safe.sh //run le script
