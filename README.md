@@ -30,3 +30,5 @@ Vu que l'objecti et de ce formé le cchois se porte sur **C++**.
 - script dans script/install_mysql.sh
 chmod +x **pathtoApp**/script/install_mysql.sh //le rend executable
 ./scripts/install_mysql_safe.sh //run le script
+
+sudo apt-get install libmariadb-dev libmariadb-dev-compat

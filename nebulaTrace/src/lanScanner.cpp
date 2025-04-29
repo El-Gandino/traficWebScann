@@ -18,6 +18,9 @@
 #include <netinet/if_ether.h> // For ARP header
 #include <linux/if_packet.h> // For sockaddr_ll
 #include <mutex>
+#include <atomic>
+#include <netdb.h> 
+#include <regex>
 
 #include "../include/logs.h" // Include the header file for Logs class
 #include "../include/stream.h" 
@@ -136,19 +139,19 @@ public:
         close(sock);
     }
     /**[scanner IP en ping] -- controle les IP silencieux et complette la table. */
-    void scanSilentIPs(const std::string& interface) {
+    std::vector<std::string>  scanSilentIPs(const std::string& interface) {
         std::string broadcastIP = getBroadcastAddress(interface);
         if (broadcastIP.empty()) {
             Logs::getInstance( Stream::getInstance()->logFilePath)->writeError("Failed to get broadcast address.");
             std::cerr << "Failed to get broadcast address." << std::endl;
-            return;
+            return {};
         }
         // Extract the subnet from the broadcast address
         size_t lastDot = broadcastIP.find_last_of('.');
         if (lastDot == std::string::npos) {
             Logs::getInstance( Stream::getInstance()->logFilePath)->writeError("Invalid broadcast address format.");
             std::cerr << "Invalid broadcast address format." << std::endl;
-            return;
+            return {};
         }
         std::string subnet = broadcastIP.substr(0, lastDot);
         // Ping all IPs in the subnet
@@ -173,19 +176,48 @@ public:
         for (auto& thread : threads) {
             thread.join();
         }
-        
         Logs::getInstance( Stream::getInstance()->logFilePath)->writeInfo("Scan complete. Active IPs found: " + std::to_string(activeIPs.size()) + ", Silent IPs: " + std::to_string(silentCount));
-       
+       //retourne un talbeau avec toutes les ip actives
+       return activeIPs;
     }
-    /*[faire tableaa MAC IPv4 IPv6 STARTTIME ENDTIME]*/
-    std::vector<DeviceInfo> getDeviceInfoFromArpTable() {
+    /*[getDeviceInfo]*/
+    DeviceInfo getDeviceName(const std::string& ipv4, const std::string& macAddress) {
+        DeviceInfo deviceInfo;
+        deviceInfo.ipv4 = ipv4;
+        deviceInfo.macAddress = macAddress;
+        // Resolve hostname
+        struct sockaddr_in sa;
+        
+        char host[NI_MAXHOST];
+        // Convert IPv4 string to sockaddr_in
+        if (inet_pton(AF_INET, ipv4.c_str(), &sa.sin_addr) > 0) {
+            sa.sin_family = AF_INET;
+            // Perform reverse DNS lookup to get the hostname
+            if (getnameinfo((struct sockaddr*)&sa, sizeof(sa), host, sizeof(host), nullptr, 0, NI_NAMEREQD) == 0) {
+                deviceInfo.hostName = std::string(host);
+            } else {
+                Logs::getInstance(Stream::getInstance()->logFilePath)->writeWarning("Failed to resolve hostname for IP: " + ipv4);
+                deviceInfo.hostName = "Unknown";
+            }
+        } else {
+            Logs::getInstance(Stream::getInstance()->logFilePath)->writeWarning("Invalid IPv4 address: " + ipv4);
+            deviceInfo.hostName = "Unknown";
+        }
+            deviceInfo.ipv6 = "Unknown";
+        
+        deviceInfo.dhcpEndDate = leaveTime; // Placeholder for lease time        
+        return deviceInfo;
+    }
+ 
+    /*[faire tableaa MAC IPv4 STARTTIME ENDTIME]*/
+    std::vector<DeviceInfo> getDevice() {
         std::vector<DeviceInfo> devices;
+        std::map<std::string, bool> seenDevices; // To track unique MAC addresses
         FILE* arpFile = fopen("/proc/net/arp", "r");
         if (!arpFile) {
             perror("Failed to open ARP table");
             return devices;
         }
-
         char line[256];
         fgets(line, sizeof(line), arpFile); // Skip the header line
 
@@ -195,24 +227,20 @@ public:
             if (!(iss >> ip >> hwType >> flags >> mac >> mask >> device)) {
                 continue;
             }
-
             if (mac == "00:00:00:00:00:00") {
                 continue; // Skip incomplete entries
             }
-
-            DeviceInfo deviceInfo;
-            deviceInfo.ipv4 = ip;
-            deviceInfo.macAddress = mac;
-            deviceInfo.hostName = ""; // Hostname resolution can be added if needed
-            deviceInfo.ipv6 = ""; // IPv6 not available in ARP table
-            deviceInfo.dhcpStartDate = ""; // DHCP info not available in ARP table
-            deviceInfo.dhcpEndDate = ""; // DHCP info not available in ARP table
-
-            devices.push_back(deviceInfo);
+            if (seenDevices.find(mac) != seenDevices.end()) {
+                continue; // Skip duplicate MAC addresses
+            }
+            seenDevices[mac] = true; // Mark this MAC as seen
+            devices.push_back(getDeviceName(ip, mac)); // Use the new method to get device info
         }
 
         fclose(arpFile);
         return devices;
     }
-
+        private:
+            std::string leaveTime = "86400"; // Placeholder for lease time
+            
 };

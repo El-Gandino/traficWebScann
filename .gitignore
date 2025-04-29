@@ -49,4 +49,8 @@
 *~
 .DS_Store
 Thumbs.db
-!nebulaTrace/
+
+*.JSON
+*.json
+
+ nebulaTrace/build/*
